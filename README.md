@@ -118,6 +118,33 @@ python -m emote_danmaku library add "D:/我的表情/整个文件夹" --trace
 文件名就是表情名（`妙啊.png` → `[妙啊]`），`--trace` 会立刻试着矢量化并报出用了几个色块。
 文件名带不带方括号都行，`[妙啊].png` 与 `妙啊.png` 等价。
 
+**D. 用 `bem` 自动补齐缺失的表情（最省心）**
+
+上面三种方式都拿不到「别家主播的粉丝牌表情」「活动表情」等。
+[bem](https://github.com/) 能列出 B 站**全部表情包**的逐条表情，本工具已接入：
+
+```bash
+pip install biliemoji==2.0.0          # bem 的依赖
+python -m emote_danmaku library bem "D:/录播/xxx.xml" --cookie "SESSDATA=...; bili_jct=..."
+```
+
+它会从 XML 里提取所有 `[表情名]`，与本地库比对，只下载缺的那些。
+**查不到的会自动跳过并逐个列出**，压制时照旧显示为文字，不会报错中断。
+
+也可以在压制时自动触发：`config.json` 里 `bem_auto_fetch` 默认开启，
+发现未收录表情时会先尝试补下载，补完自动重新生成 ASS。
+
+首次扫描较慢（B 站有七千多个表情包），结果会缓存 7 天：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--query 小黄脸` | 只在这些包里找，快很多；可多次使用 |
+| `--limit 100` | 最多扫多少个包 |
+| `--refresh` | 忽略缓存重新扫描 |
+| `--proxy http://127.0.0.1:7890` | 走代理 |
+
+缓存位置：`%LOCALAPPDATA%\emote-danmaku\bem_catalog.json`。
+
 查看库里有什么：
 
 ```bash
@@ -220,9 +247,10 @@ python auto_pipeline.py run "D:/录播/xxx.xml" -o "D:/out/xxx.mp4"
 | --- | --- | --- |
 | `import <文件夹>` | 否 | 最稳。文件名即表情名（`dog.png` → `[dog]`） |
 | `fetch --room` | 是（SESSDATA） | 一次拉全直播间表情包，含房主专属表情 |
+| `library bem` | 是（SESSDATA + bili_jct） | 覆盖全站表情包，能补别家粉丝牌；查不到的跳过 |
 | `harvest` | 否 | 仅当录播姬开了「录制弹幕原始数据」 |
 
-匿名调 B 站表情接口会返回 `code=-101 账号未登录`，所以 `fetch` 必须自带 cookie；
+匿名调 B 站表情接口会返回 `code=-101 账号未登录`，所以 `fetch` / `bem` 必须自带 cookie；
 这也是本项目强调**本地表情包库**的原因。
 
 ---
@@ -250,6 +278,7 @@ python -m emote_danmaku [--library DIR] <命令>
 library add     <图片或文件夹...> [--name 名字] [--trace] [--overwrite]
 library fetch   --room 房间号 [--cookie ...] [--platform pc|android|ios]
 library harvest <弹幕.xml> [--all] [--cookie ...]
+library bem     <弹幕.xml 或 表情名...> [--cookie ...] [--query 包名] [--refresh]
 library list    [--json]
 library prune   [--vectors] [--all]
 
@@ -377,6 +406,7 @@ python examples/make_demo.py                # 生成 examples/out/demo.mp4 与�
 | `emote_danmaku/ass.py` | 解析 / 重写 ASS，算排版，生成表情事件 |
 | `emote_danmaku/library.py` | 表情库：下载、导入、索引、矢量缓存 |
 | `emote_danmaku/xmlfile.py` | 读录播姬 XML，从 `raw` 里提取表情地址 |
+| `emote_danmaku/bem.py` | 桥接 `tools/bem.py`，按表情名从 B 站全站表情库补齐 |
 | `emote_danmaku/cli.py` | 命令行 |
 | `emote_danmaku/progress.py` | 压制进度显示 |
 | `run_from_config.py` | 读 `config.json`，串起「转 ASS → 注入表情 → 压制」 |
@@ -395,7 +425,10 @@ python -m py_compile run_from_config.py auto_pipeline.py emote_danmaku/*.py
 
 - [BililiveRecorder](https://github.com/Bililive/BililiveRecorder) — 直播录制与弹幕
 - [DanmakuFactory](https://github.com/hihkm/DanmakuFactory) — 弹幕 XML → ASS 排版
+- [biliemoji](https://pypi.org/project/biliemoji/) — B 站表情包接口 SDK（`bem` 的依赖）
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect) — 表情接口文档
+
+`tools/bem.py` 是 [BiliEmojiDD](https://github.com/) 的命令行版，随本仓库一同分发以便开箱即用。
 
 本项目代码以 **MIT** 许可发布，见 [LICENSE](LICENSE)。
 
