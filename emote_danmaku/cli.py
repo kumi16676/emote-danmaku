@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import shutil
+import re
 import subprocess
 import sys
 import tempfile
@@ -82,6 +83,9 @@ def cmd_library_fetch(args) -> int:
     lib = _library(args)
     cookie = args.cookie or os.environ.get("BILIBILI_COOKIE", "")
     if not cookie:
+        # 批处理菜单调用时不带 --cookie，回退到项目 config.json
+        cookie = _cookie_from_config()
+    if not cookie:
         print("提示：未提供 --cookie / BILIBILI_COOKIE，B 站可能只返回通用表情。",
               file=sys.stderr)
 
@@ -143,6 +147,78 @@ def cmd_library_harvest(args) -> int:
     print(f"完成：新增 {added}，已存在 {updated}，失败 {failed}；"
           f"表情库共 {len(lib)} 个")
     return 0
+
+
+
+def _cookie_from_config() -> str:
+    """读项目 config.json 里的 cookie，供批处理菜单这类无参数调用使用。"""
+    try:
+        cfg_path = Path(__file__).resolve().parent.parent / "config.json"
+        if not cfg_path.is_file():
+            return ""
+        data = json.loads(cfg_path.read_text(encoding="utf-8"))
+        return str(data.get("cookie") or "").strip()
+    except Exception:  # noqa: BLE001 读不到就当没有
+        return ""
+
+
+def cmd_library_bem(args) -> int:
+    """用 bem 把缺失的表情从 B 站表情库补齐。"""
+    try:
+        from .bem import BemError, fetch_missing
+    except ImportError as exc:
+        print(f"错误：无法加载 bem 桥接模块（{exc}）", file=sys.stderr)
+        return 2
+
+    lib = _library(args)
+    cookie = args.cookie or os.environ.get("BILIBILI_COOKIE", "")
+
+    # source 既可以是 XML，也可以直接是表情名
+    tokens: list[str] = []
+    for src in args.source:
+        p = Path(src)
+        if p.is_file() and p.suffix.lower() == ".xml":
+            from .xmlfile import parse_xml
+
+            found = set()
+            for d in parse_xml(p):
+                for m in re.finditer(r"\[[^\[\]\s]{1,40}\]", d.text or ""):
+                    found.add(m.group(0))
+            tokens.extend(sorted(found))
+            print(f"{p.name}: 提取到 {len(found)} 种表情")
+        else:
+            tokens.append(src.strip())
+
+    if not tokens:
+        print("错误：没有可处理的输入", file=sys.stderr)
+        return 2
+
+    try:
+        res = fetch_missing(
+            tokens, lib, bem=args.bem or None, cookie=cookie,
+            proxy=args.proxy or "", query=args.query or "", limit=args.limit,
+            log=print, max_age=0 if args.refresh else 7 * 86400,
+        )
+    except BemError as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+
+    print()
+    print(f"新增     {len(res.added)}")
+    for t in res.added:
+        print(f"  + {t}")
+    if res.existed:
+        print(f"已存在   {len(res.existed)}（跳过）")
+    if res.missing:
+        print(f"B 站没有 {len(res.missing)}（跳过，压制时显示为文字）")
+        for t in res.missing:
+            print(f"  - {t}")
+    if res.failed:
+        print(f"下载失败 {len(res.failed)}")
+        for t in res.failed:
+            print(f"  ! {t}")
+    print(f"\n表情库现在共 {len(lib)} 个")
+    return 0 if not res.failed else 1
 
 
 def cmd_library_list(args) -> int:
@@ -331,6 +407,18 @@ def build_parser() -> argparse.ArgumentParser:
     harv.add_argument("--cookie", help="B 站 Cookie（含 SESSDATA）")
     harv.add_argument("-v", "--verbose", action="store_true")
     harv.set_defaults(func=cmd_library_harvest)
+
+    bem = libsub.add_parser(
+        "bem", help="用 bem.py 从 B 站表情库补齐缺失的表情（需 biliemoji）")
+    bem.add_argument("source", nargs="+",
+                     help="弹幕 XML 路径，或直接写表情名（如 \"[doge_金箍]\"）")
+    bem.add_argument("--cookie", help="B 站 Cookie（含 SESSDATA、bili_jct）")
+    bem.add_argument("--bem", help="bem.py 路径（默认自动查找 tools/bem.py）")
+    bem.add_argument("--query", help="只在这些表情包里找（按包名过滤），更快")
+    bem.add_argument("--limit", type=int, default=0, help="最多扫多少个表情包")
+    bem.add_argument("--proxy", help="如 http://127.0.0.1:7890")
+    bem.add_argument("--refresh", action="store_true", help="忽略缓存，重新扫描")
+    bem.set_defaults(func=cmd_library_bem)
 
     prune = libsub.add_parser("prune", help="清理缓存")
     prune.add_argument("--vectors", action="store_true", help="删除矢量缓存")
