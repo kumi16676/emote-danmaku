@@ -1,0 +1,52 @@
+# ---- 录制素材 / 成片（体积巨大，绝不入库）----
+*.flv
+*.mp4
+*.mkv
+*.ts
+*.ass
+!examples/out/*.ass
+2026*/
+D:/data/
+
+# examples 的产物随时可重建
+examples/out/
+docs/_show.ass
+
+# ---- 表情包素材（B 站版权素材，不随仓库分发）----
+# 用户自己用 `library fetch` / `library add` 填充即可
+emotes/images/
+emotes/vector/
+emotes/*.png
+emotes/*.gif
+emotes/*.jpg
+emotes/*.jpeg
+emotes/*.webp
+emotes/index.json
+
+# ---- 第三方二进制（请按 README 自行下载）----
+tools/DanmakuFactory/*.exe
+tools/DanmakuFactory/*.dll
+
+# ---- 本地凭据与配置覆盖 ----
+config.local.json
+cookie.txt
+.env
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.test-tmp/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
