@@ -297,12 +297,7 @@ def build_ass(cfg: dict, xml: Path, video: Path | None) -> tuple[Path, Path]:
     lib = EmoteLibrary(resolve_path(cfg, cfg.get("library"), "emotes"))
     log(f"[2/3] 注入表情（表情库 {len(lib)} 个）...")
     doc = read_ass(plain)
-    doc, stats = transform(doc, lib, TextMetrics(),
-                           RenderOptions(height_ratio=float(cfg_get(cfg, "emote_scale", 1.3)),
-                                         side_bearing=float(cfg_get(cfg, "emote_gap_tweak", 0.28)),
-                                         max_colors=int(cfg_get(cfg, "max_colors", 10)),
-                                         tolerance=float(cfg_get(cfg, "tolerance", 0.5)),
-                                         unknown=str(cfg_get(cfg, "unknown_emote", "text"))))
+    doc, stats = transform(doc, lib, TextMetrics(), _render_options(cfg))
     emote_ass = xml.with_suffix(".emote.ass")
     emote_ass.write_text(doc.to_text(), encoding="utf-8-sig")
     log(f"      绘制表情 {stats.emotes} 个（{stats.layers} 色层），"
@@ -317,17 +312,76 @@ def build_ass(cfg: dict, xml: Path, video: Path | None) -> tuple[Path, Path]:
         width = max(len(t) for t, _ in ranked)
         for token, count in ranked:
             log(f"    {token:<{width}}  x{count}")
-        lib_path = resolve_path(cfg, cfg.get("library"), "emotes")
         log("")
-        log(f"  把对应图片放进：{lib_path}（子文件夹也会被扫描）")
-        log("  文件名就是表情名，例如  示例主播_偷笑.png")
-        log("  也可以先跑批处理菜单 [1] 更新表情包。")
-        log("")
-        if not ask_yes_no("  仍然继续压制吗？（未收录的会显示成 [名字] 文字）",
-                          default=True):
-            raise SystemExit("已取消。补齐表情后重新运行即可。")
-        log("")
+
+        # 先尝试用 bem 自动补齐：bem 能列出 B 站全部表情包的逐条表情，
+        # 正好覆盖房间接口拿不到的（别家粉丝牌、活动表情等）。
+        if cfg_get(cfg, "bem_auto_fetch", True):
+            missing_tokens = [t for t, _ in ranked]
+            fetched = _try_bem_fetch(cfg, lib, missing_tokens)
+            if fetched and fetched.added:
+                log(f"  已自动补下载 {len(fetched.added)} 个，正在重新生成 ASS…")
+                # 表情库变了，需要重跑一遍注入
+                doc = read_ass(plain)
+                doc, stats = transform(doc, lib, TextMetrics(),
+                                       _render_options(cfg))
+                emote_ass.write_text(doc.to_text(), encoding="utf-8-sig")
+                log(f"      绘制表情 {stats.emotes} 个（{stats.layers} 色层），"
+                    f"处理弹幕 {stats.events} 条")
+            if fetched and fetched.missing:
+                log("")
+                log(f"  B 站表情库里也没有这 {len(fetched.missing)} 个（已跳过，"
+                    f"将显示为文字）：")
+                mw = max(len(t) for t in fetched.missing)
+                for token in fetched.missing:
+                    log(f"    {token:<{mw}}")
+                log("")
+            if fetched and fetched.failed:
+                log(f"  下载失败 {len(fetched.failed)} 个（将显示为文字）："
+                    + "、".join(fetched.failed[:8]))
+                log("")
+
+        if stats.missing:
+            lib_path = resolve_path(cfg, cfg.get("library"), "emotes")
+            log(f"  仍有 {len(stats.missing)} 种没收录。把图片放进：{lib_path}")
+            log("  （子文件夹也会被扫描，文件名就是表情名，例如  示例主播_偷笑.png）")
+            log("")
+            if not ask_yes_no("  仍然继续压制吗？（未收录的会显示成 [名字] 文字）",
+                              default=True):
+                raise SystemExit("已取消。补齐表情后重新运行即可。")
+            log("")
     return plain, emote_ass
+
+
+def _render_options(cfg: dict):
+    return RenderOptions(
+        height_ratio=float(cfg_get(cfg, "emote_scale", 1.3)),
+        side_bearing=float(cfg_get(cfg, "emote_gap_tweak", 0.0)),
+        max_colors=int(cfg_get(cfg, "max_colors", 10)),
+        tolerance=float(cfg_get(cfg, "tolerance", 0.5)),
+        unknown=str(cfg_get(cfg, "unknown_emote", "text")),
+    )
+
+
+def _try_bem_fetch(cfg: dict, lib, tokens):
+    """用 bem 补下载缺失表情；不可用时返回 None 并给出提示。"""
+    try:
+        from emote_danmaku.bem import BemError, fetch_missing
+    except ImportError:
+        return None
+    try:
+        log("  尝试从 B 站表情库自动补下载…")
+        return fetch_missing(
+            tokens, lib,
+            bem=cfg_get(cfg, "bem_path", "") or None,
+            cookie=(cfg.get("cookie") or os.environ.get("BILIBILI_COOKIE", "")).strip(),
+            proxy=cfg_get(cfg, "bem_proxy", "") or "",
+            query=cfg_get(cfg, "bem_query", "") or "",
+            log=log,
+        )
+    except BemError as exc:
+        log(f"  跳过自动下载：{exc}")
+        return None
 
 
 def do_ass(cfg: dict, target: Path) -> int:
