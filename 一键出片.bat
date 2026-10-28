@@ -55,6 +55,7 @@ echo  [3] 打开表情库目录
 echo  [4] 编辑配置文件 config.json
 echo  [5] 重新扫描表情库（把新丢进去的图片登记进来）
 echo  [6] 切换编码器（显卡加速 / CPU）
+echo  [7] 补齐缺失表情（自动从 B 站下载）
 echo  [0] 退出
 echo =======================================================
 set "CHOICE="
@@ -89,6 +90,16 @@ if "%CHOICE%"=="5" (
 )
 if "%CHOICE%"=="6" (
     "%PY%" "%TOOL_DIR%run_from_config.py" --mode encoder --config "%CONFIG%"
+    goto :PAUSE_MENU
+)
+if "%CHOICE%"=="7" (
+    echo.
+    echo 请把 .xml 弹幕文件拖到本脚本上，或在此输入完整路径：
+    set "FILLPATH="
+    set /p "FILLPATH=XML 路径: "
+    if defined FILLPATH (
+        "%PY%" -m emote_danmaku library bem "!FILLPATH!"
+    )
     goto :PAUSE_MENU
 )
 goto :END
