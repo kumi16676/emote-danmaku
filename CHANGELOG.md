@@ -3,6 +3,29 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.0] - 2026-10-28
+
+### 新增
+
+- **接入 `bem` 自动补表情**：发现弹幕里有本地库没有的表情时，自动从 B 站
+  全站表情库（七千多个表情包）按名字查找并下载。
+  - 新增 `emote_danmaku/bem.py` 桥接层，复用 `bem.py` 的 `--json` 接口；
+  - 新增命令 `library bem <弹幕.xml 或 表情名...>`；
+  - 批处理菜单新增 `[7] 补齐缺失表情`；
+  - 压制流程中 `bem_auto_fetch` 默认开启，补完自动重新生成 ASS。
+- **查不到的表情自动跳过并逐个列出**，不会中断压制。
+- 表情库索引缓存 7 天（`%LOCALAPPDATA%\emote-danmaku\bem_catalog.json`），
+  避免每次压制都重新联网扫描。
+
+### 配置
+
+新增 `bem_auto_fetch`、`bem_path`、`bem_query`、`bem_proxy` 四项。
+
+### 修复
+
+- `convert` 命令引用了已删除的 `slot_pad` / `baseline_drop` 字段，运行即崩溃。
+- `run_from_config.py` 与 `_render_options` 的 `side_bearing` 默认值不一致。
+
 ## [1.0.0] - 2026-10-28
 
 首个公开版本。
