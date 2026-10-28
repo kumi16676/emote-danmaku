@@ -7,10 +7,12 @@ Run with::
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import sys
 import unittest
+import unittest.mock
 import uuid
 from pathlib import Path
 
@@ -352,6 +354,93 @@ class TestXml(TempDirTest):
         res = harvest_emotes(p)
         self.assertEqual(res.total_comments, 1)
         self.assertIn("[妙啊]", res.emotes)
+
+
+# --------------------------------------------------------------------------
+# bem bridge (offline: only the parsing / cache / skip logic)
+# --------------------------------------------------------------------------
+
+class TestBemBridge(TempDirTest):
+    def _module(self):
+        from emote_danmaku import bem
+        return bem
+
+    def test_catalog_roundtrip_through_cache(self):
+        """A saved catalog must load back identically."""
+        bem = self._module()
+        cache = self.tmp / "cat.json"
+        cat = {
+            "[妙啊]": bem.BemEmote("[妙啊]", "https://x/a.png", None, "小黄脸", 1),
+            "[热]": bem.BemEmote("[热]", "https://x/b.png",
+                                 "https://x/b.gif", "热词", 53),
+        }
+        bem._save_cache(cache, "k", cat)
+        loaded = bem._load_cache(cache, "k", 86400)
+        self.assertIsNotNone(loaded)
+        self.assertEqual(set(loaded), set(cat))
+        self.assertEqual(loaded["[热]"].gif_url, "https://x/b.gif")
+        self.assertEqual(loaded["[热]"].package_id, 53)
+
+    def test_cache_key_mismatch_is_ignored(self):
+        bem = self._module()
+        cache = self.tmp / "cat.json"
+        cat = {"[妙啊]": bem.BemEmote("[妙啊]", "https://x/a.png")}
+        bem._save_cache(cache, "query-A", cat)
+        self.assertIsNone(bem._load_cache(cache, "query-B", 86400))
+
+    def test_cache_expires(self):
+        bem = self._module()
+        cache = self.tmp / "cat.json"
+        bem._save_cache(cache, "k", {"[妙啊]": bem.BemEmote("[妙啊]", "u")})
+        self.assertIsNone(bem._load_cache(cache, "k", -1))
+
+    def test_broken_cache_is_ignored(self):
+        bem = self._module()
+        cache = self.tmp / "cat.json"
+        cache.write_text("not json", encoding="utf-8")
+        self.assertIsNone(bem._load_cache(cache, "k", 86400))
+
+    def test_find_bem_accepts_explicit_path(self):
+        """An explicit existing path must win, so users can keep bem elsewhere."""
+        bem = self._module()
+        fake = self.tmp / "bem.py"
+        fake.write_text("# stub", encoding="utf-8")
+        self.assertEqual(bem.find_bem(fake).resolve(), fake.resolve())
+
+    def test_find_bem_raises_when_nothing_found(self):
+        """With no candidates at all, the error must say where to put bem.py."""
+        bem = self._module()
+        saved = os.environ.pop("BEM_SCRIPT", None)
+        try:
+            with unittest.mock.patch.object(bem.Path, "home",
+                                            return_value=self.tmp / "nohome"):
+                with unittest.mock.patch.object(bem, "__file__",
+                                                str(self.tmp / "x" / "bem.py")):
+                    try:
+                        bem.find_bem(self.tmp / "missing.py")
+                    except bem.BemError as exc:
+                        self.assertIn("bem.py", str(exc))
+                    else:
+                        self.fail("missing bem should raise")
+        finally:
+            if saved is not None:
+                os.environ["BEM_SCRIPT"] = saved
+
+    def test_fetch_missing_skips_tokens_already_in_library(self):
+        """Tokens the library already has must not hit the network."""
+        bem = self._module()
+        lib = make_library(self.tmp)
+        # both emotes exist -> nothing to download, no bem needed
+        res = bem.fetch_missing(["[妙啊]", "[热]"], lib, bem=self.tmp / "nope.py")
+        self.assertEqual(len(res.existed), 2)
+        self.assertEqual(res.added, [])
+        self.assertEqual(res.missing, [])
+
+    def test_fetch_result_total(self):
+        bem = self._module()
+        r = bem.FetchResult(added=["a"], existed=["b"], missing=["c"],
+                            failed=["d"])
+        self.assertEqual(r.total, 4)
 
 
 if __name__ == "__main__":
